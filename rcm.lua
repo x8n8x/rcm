@@ -280,6 +280,9 @@ function library:Window(props)
             window:draw()
         end)
     end
+
+    return library
     
     return window
+
 end
