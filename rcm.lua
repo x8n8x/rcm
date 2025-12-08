@@ -24,7 +24,6 @@ function library:Window(props)
         toggleKey = props.ToggleKey or props.toggleKey or "F1"
     }
     
-    
     for i = 1, 20 do
         window.pageOpen[i] = false
     end
@@ -181,7 +180,7 @@ function library:Window(props)
             end
         elseif pressedKey == "LeftArrow" then
             if currentItem and currentItem.type == "item" and currentItem.data.type == "slider" then
-                local change = -10
+                local change = -1
                 currentItem.data.value = math.clamp(currentItem.data.value + change, currentItem.data.min, currentItem.data.max)
                 if currentItem.data.callback then
                     currentItem.data.callback(currentItem.data.value)
@@ -189,7 +188,7 @@ function library:Window(props)
             end
         elseif pressedKey == "RightArrow" then
             if currentItem and currentItem.type == "item" and currentItem.data.type == "slider" then
-                local change = 10
+                local change = 1
                 currentItem.data.value = math.clamp(currentItem.data.value + change, currentItem.data.min, currentItem.data.max)
                 if currentItem.data.callback then
                     currentItem.data.callback(currentItem.data.value)
@@ -285,4 +284,3 @@ function library:Window(props)
 end
 
 return library
-
