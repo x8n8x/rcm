@@ -1,6 +1,6 @@
 --!optimization 2
 
-library = {}
+local library = {}
 local shared = {
     drawings = {},
     theme = {
@@ -280,10 +280,8 @@ function library:Window(props)
             window:draw()
         end)
     end
-
-    return library
     
     return window
-
 end
 
+return library
