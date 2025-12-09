@@ -130,7 +130,10 @@ function library:Window(props)
                         elseif item.type == "slider" then
                             itemText = item.name .. " -> <" .. math.floor(item.value) .. "/" .. item.max .. ">"
                         elseif item.type == "button" then
-                            itemText = item.name .. " -> [PRESS ENTER]"
+                            itemText = item.name
+                            if item.comment and item.comment ~= "" then
+                                itemText = itemText .. " " .. item.comment
+                            end
                         end
                         
                         DrawingImmediate.Text(vector.create(startX + 22, currentY + 3), 13, isItemSelected and shared.theme.accent or shared.theme.text, 1, itemText, false, "Proggy")
@@ -258,6 +261,7 @@ function library:Window(props)
                 local button = {
                     type = "button",
                     name = props.Name or "Button",
+                    comment = props.Comment or props.comment or "",
                     callback = props.Callback or props.callback or function() end
                 }
                 
