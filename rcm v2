@@ -5,7 +5,8 @@ local is = game:GetService("UserInputService")
 local cg = game:GetService("CoreGui")
 local plrs = game:GetService("Players")
 local lp = plrs.LocalPlayer
-local mouse = lp:GetMouse()
+
+local mousePos = Vector2.new(0, 0)
 
 local ui = {}
 ui.visible = false
@@ -637,23 +638,26 @@ function rcm.new(config)
     
     is.InputBegan:Connect(function(input, gameProcessed)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            handleMouseClick(mouse.X, mouse.Y, true)
+            mousePos = Vector2.new(input.Position.X, input.Position.Y)
+            handleMouseClick(mousePos.X, mousePos.Y, true)
         elseif input.UserInputType == Enum.UserInputType.Keyboard then
             handleKeyPress(input.KeyCode, true)
         end
     end)
-    
+
     is.InputEnded:Connect(function(input, gameProcessed)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            handleMouseClick(mouse.X, mouse.Y, false)
+            mousePos = Vector2.new(input.Position.X, input.Position.Y)
+            handleMouseClick(mousePos.X, mousePos.Y, false)
         elseif input.UserInputType == Enum.UserInputType.Keyboard then
             handleKeyPress(input.KeyCode, false)
         end
     end)
-    
+
     is.InputChanged:Connect(function(input, gameProcessed)
         if input.UserInputType == Enum.UserInputType.MouseMovement then
-            handleMouseMove(mouse.X, mouse.Y)
+            mousePos = Vector2.new(input.Position.X, input.Position.Y)
+            handleMouseMove(mousePos.X, mousePos.Y)
         end
     end)
     
