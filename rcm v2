@@ -1,0 +1,666 @@
+local rcm = {}
+local ws = game:GetService("Workspace")
+local rs = game:GetService("RunService")
+local is = game:GetService("UserInputService")
+local cg = game:GetService("CoreGui")
+local plrs = game:GetService("Players")
+local lp = plrs.LocalPlayer
+local mouse = lp:GetMouse()
+
+local ui = {}
+ui.visible = false
+ui.dragging = false
+ui.dragStart = nil
+ui.windowPos = Vector2.new(100, 100)
+ui.windowSize = Vector2.new(600, 500)
+ui.activeTab = 1
+ui.tabs = {}
+ui.sections = {}
+ui.components = {}
+ui.keybind = Enum.KeyCode.RightShift
+
+local colors = {
+    bg = Color3.fromRGB(25, 25, 35),
+    bg2 = Color3.fromRGB(35, 35, 45),
+    accent = Color3.fromRGB(100, 150, 255),
+    text = Color3.fromRGB(255, 255, 255),
+    text2 = Color3.fromRGB(200, 200, 200),
+    border = Color3.fromRGB(60, 60, 80),
+    hover = Color3.fromRGB(120, 170, 255),
+    toggle_on = Color3.fromRGB(100, 200, 100),
+    toggle_off = Color3.fromRGB(200, 100, 100)
+}
+
+local function clamp(val, min, max)
+    return math.max(min, math.min(max, val))
+end
+
+local function lerp(a, b, t)
+    return a + (b - a) * t
+end
+
+local function pointInRect(px, py, rx, ry, rw, rh)
+    return px >= rx and px <= rx + rw and py >= ry and py <= py + rh
+end
+
+local function createDrawing(type, props)
+    local obj = Drawing.new(type)
+    for k, v in pairs(props) do
+        if k == "Color" and typeof(v) == "userdata" then
+            obj.Color = v
+        elseif k == "Position" and typeof(v) == "userdata" then
+            obj.Position = v
+        elseif k == "Size" and typeof(v) == "userdata" then
+            obj.Size = v
+        else
+            obj[k] = v
+        end
+    end
+    return obj
+end
+
+local function createWindow()
+    ui.windowBg = createDrawing("Square", {
+        Position = ui.windowPos,
+        Size = ui.windowSize,
+        Color = colors.bg,
+        Filled = true,
+        Transparency = 0.9,
+        ZIndex = 1
+    })
+    
+    ui.windowBorder = createDrawing("Square", {
+        Position = ui.windowPos,
+        Size = ui.windowSize,
+        Color = colors.border,
+        Filled = false,
+        Thickness = 2,
+        ZIndex = 2
+    })
+    
+    ui.titleBar = createDrawing("Square", {
+        Position = Vector2.new(ui.windowPos.X, ui.windowPos.Y),
+        Size = Vector2.new(ui.windowSize.X, 30),
+        Color = colors.bg2,
+        Filled = true,
+        Transparency = 0.9,
+        ZIndex = 3
+    })
+    
+    ui.titleText = createDrawing("Text", {
+        Position = Vector2.new(ui.windowPos.X + 10, ui.windowPos.Y + 8),
+        Text = "rcm ui",
+        Color = colors.text,
+        Size = 13,
+        Font = 2,
+        ZIndex = 4
+    })
+    
+    ui.tabBar = createDrawing("Square", {
+        Position = Vector2.new(ui.windowPos.X, ui.windowPos.Y + 30),
+        Size = Vector2.new(ui.windowSize.X, 35),
+        Color = colors.bg2,
+        Filled = true,
+        Transparency = 0.9,
+        ZIndex = 3
+    })
+end
+
+local function createTab(name, id)
+    local tabWidth = 80
+    local tabX = ui.windowPos.X + 10 + (id - 1) * (tabWidth + 5)
+    
+    local tab = {
+        name = name,
+        id = id,
+        bg = createDrawing("Square", {
+            Position = Vector2.new(tabX, ui.windowPos.Y + 35),
+            Size = Vector2.new(tabWidth, 25),
+            Color = colors.bg,
+            Filled = true,
+            Transparency = 0.9,
+            ZIndex = 4
+        }),
+        text = createDrawing("Text", {
+            Position = Vector2.new(tabX + tabWidth/2 - 20, ui.windowPos.Y + 40),
+            Text = name,
+            Color = colors.text2,
+            Size = 13,
+            Font = 2,
+            ZIndex = 5
+        }),
+        sections = {}
+    }
+    
+    ui.tabs[id] = tab
+    return tab
+end
+
+local function createSection(tab, name, side)
+    local section = {
+        name = name,
+        tab = tab,
+        side = side,
+        components = {},
+        y = 70
+    }
+    
+    local sectionX = side == "Left" and ui.windowPos.X + 10 or ui.windowPos.X + ui.windowSize.X/2 + 10
+    local sectionWidth = ui.windowSize.X/2 - 20
+    
+    section.bg = createDrawing("Square", {
+        Position = Vector2.new(sectionX, ui.windowPos.Y + section.y),
+        Size = Vector2.new(sectionWidth, 300),
+        Color = colors.bg2,
+        Filled = true,
+        Transparency = 0.7,
+        ZIndex = 3
+    })
+    
+    section.title = createDrawing("Text", {
+        Position = Vector2.new(sectionX + 5, ui.windowPos.Y + section.y + 5),
+        Text = name,
+        Color = colors.text,
+        Size = 13,
+        Font = 2,
+        ZIndex = 4
+    })
+    
+    table.insert(tab.sections, section)
+    return section
+end
+
+local function createToggle(section, name, callback)
+    local toggle = {
+        type = "toggle",
+        name = name,
+        section = section,
+        callback = callback or function() end,
+        state = false,
+        y = section.y + 30
+    }
+    
+    local sectionX = section.bg.Position.X
+    local toggleY = ui.windowPos.Y + toggle.y
+    
+    toggle.bg = createDrawing("Square", {
+        Position = Vector2.new(sectionX + 5, toggleY),
+        Size = Vector2.new(15, 15),
+        Color = colors.toggle_off,
+        Filled = true,
+        ZIndex = 5
+    })
+    
+    toggle.text = createDrawing("Text", {
+        Position = Vector2.new(sectionX + 25, toggleY),
+        Text = name,
+        Color = colors.text2,
+        Size = 13,
+        Font = 2,
+        ZIndex = 5
+    })
+    
+    table.insert(section.components, toggle)
+    section.y = section.y + 25
+    
+    return toggle
+end
+
+local function createSlider(section, name, min, max, default, callback)
+    local slider = {
+        type = "slider",
+        name = name,
+        section = section,
+        callback = callback or function() end,
+        min = min,
+        max = max,
+        value = default or min,
+        dragging = false,
+        y = section.y + 30
+    }
+    
+    local sectionX = section.bg.Position.X
+    local sliderY = ui.windowPos.Y + slider.y
+    
+    slider.text = createDrawing("Text", {
+        Position = Vector2.new(sectionX + 5, sliderY),
+        Text = name .. ": " .. math.floor(slider.value),
+        Color = colors.text2,
+        Size = 13,
+        Font = 2,
+        ZIndex = 5
+    })
+    
+    slider.track = createDrawing("Square", {
+        Position = Vector2.new(sectionX + 5, sliderY + 18),
+        Size = Vector2.new(200, 4),
+        Color = colors.bg,
+        Filled = true,
+        ZIndex = 5
+    })
+    
+    slider.fill = createDrawing("Square", {
+        Position = Vector2.new(sectionX + 5, sliderY + 18),
+        Size = Vector2.new(0, 4),
+        Color = colors.accent,
+        Filled = true,
+        ZIndex = 6
+    })
+    
+    slider.handle = createDrawing("Square", {
+        Position = Vector2.new(sectionX + 5, sliderY + 15),
+        Size = Vector2.new(10, 10),
+        Color = colors.hover,
+        Filled = true,
+        ZIndex = 7
+    })
+    
+    table.insert(section.components, slider)
+    section.y = section.y + 40
+    
+    return slider
+end
+
+local function createDropdown(section, name, options, callback)
+    local dropdown = {
+        type = "dropdown",
+        name = name,
+        section = section,
+        callback = callback or function() end,
+        options = options,
+        selected = options[1] or "",
+        open = false,
+        y = section.y + 30
+    }
+    
+    local sectionX = section.bg.Position.X
+    local dropdownY = ui.windowPos.Y + dropdown.y
+    
+    dropdown.text = createDrawing("Text", {
+        Position = Vector2.new(sectionX + 5, dropdownY),
+        Text = name .. ": " .. dropdown.selected,
+        Color = colors.text2,
+        Size = 13,
+        Font = 2,
+        ZIndex = 5
+    })
+    
+    dropdown.bg = createDrawing("Square", {
+        Position = Vector2.new(sectionX + 5, dropdownY + 18),
+        Size = Vector2.new(200, 20),
+        Color = colors.bg,
+        Filled = true,
+        ZIndex = 5
+    })
+    
+    table.insert(section.components, dropdown)
+    section.y = section.y + 50
+    
+    return dropdown
+end
+
+local function createButton(section, name, callback)
+    local button = {
+        type = "button",
+        name = name,
+        section = section,
+        callback = callback or function() end,
+        y = section.y + 30
+    }
+    
+    local sectionX = section.bg.Position.X
+    local buttonY = ui.windowPos.Y + button.y
+    
+    button.bg = createDrawing("Square", {
+        Position = Vector2.new(sectionX + 5, buttonY),
+        Size = Vector2.new(200, 25),
+        Color = colors.bg,
+        Filled = true,
+        ZIndex = 5
+    })
+    
+    button.text = createDrawing("Text", {
+        Position = Vector2.new(sectionX + 105 - (#name * 3), buttonY + 5),
+        Text = name,
+        Color = colors.text2,
+        Size = 13,
+        Font = 2,
+        ZIndex = 6
+    })
+    
+    table.insert(section.components, button)
+    section.y = section.y + 35
+    
+    return button
+end
+
+local function createKeybind(section, name, key, callback)
+    local keybind = {
+        type = "keybind",
+        name = name,
+        section = section,
+        callback = callback or function() end,
+        key = key or Enum.KeyCode.None,
+        listening = false,
+        y = section.y + 30
+    }
+    
+    local sectionX = section.bg.Position.X
+    local keybindY = ui.windowPos.Y + keybind.y
+    
+    keybind.text = createDrawing("Text", {
+        Position = Vector2.new(sectionX + 5, keybindY),
+        Text = name .. ": " .. tostring(keybind.key):gsub("Enum.KeyCode.", ""),
+        Color = colors.text2,
+        Size = 13,
+        Font = 2,
+        ZIndex = 5
+    })
+    
+    table.insert(section.components, keybind)
+    section.y = section.y + 25
+    
+    return keybind
+end
+
+local function updateSlider(slider, mouseX)
+    local sectionX = slider.section.bg.Position.X
+    local trackX = sectionX + 5
+    local trackWidth = 200
+    
+    if mouseX >= trackX and mouseX <= trackX + trackWidth then
+        local percent = (mouseX - trackX) / trackWidth
+        slider.value = slider.min + (slider.max - slider.min) * percent
+        slider.value = clamp(slider.value, slider.min, slider.max)
+        
+        local fillWidth = (slider.value - slider.min) / (slider.max - slider.min) * trackWidth
+        slider.fill.Size = Vector2.new(fillWidth, 4)
+        slider.handle.Position = Vector2.new(trackX + fillWidth - 5, slider.track.Position.Y - 3)
+        slider.text.Text = slider.name .. ": " .. math.floor(slider.value)
+        
+        slider.callback(slider.value)
+    end
+end
+
+local function handleMouseClick(mouseX, mouseY, isDown)
+    if not ui.visible then return false end
+    
+    if isDown then
+        if pointInRect(mouseX, mouseY, ui.windowPos.X, ui.windowPos.Y, ui.windowSize.X, 30) then
+            ui.dragging = true
+            ui.dragStart = Vector2.new(mouseX - ui.windowPos.X, mouseY - ui.windowPos.Y)
+            return true
+        end
+        
+        for i, tab in pairs(ui.tabs) do
+            local tabX = ui.windowPos.X + 10 + (i - 1) * 85
+            if pointInRect(mouseX, mouseY, tabX, ui.windowPos.Y + 35, 80, 25) then
+                ui.activeTab = i
+                updateTabColors()
+                return true
+            end
+        end
+        
+        for _, section in pairs(ui.sections) do
+            if section.tab.id == ui.activeTab then
+                for _, comp in pairs(section.components) do
+                    if comp.type == "toggle" then
+                        local sectionX = section.bg.Position.X
+                        local toggleY = ui.windowPos.Y + comp.y
+                        if pointInRect(mouseX, mouseY, sectionX + 5, toggleY, 15, 15) then
+                            comp.state = not comp.state
+                            comp.bg.Color = comp.state and colors.toggle_on or colors.toggle_off
+                            comp.callback(comp.state)
+                            return true
+                        end
+                    elseif comp.type == "slider" then
+                        local sectionX = section.bg.Position.X
+                        local sliderY = ui.windowPos.Y + comp.y + 15
+                        if pointInRect(mouseX, mouseY, sectionX + 5, sliderY, 200, 10) then
+                            comp.dragging = true
+                            updateSlider(comp, mouseX)
+                            return true
+                        end
+                    elseif comp.type == "button" then
+                        local sectionX = section.bg.Position.X
+                        local buttonY = ui.windowPos.Y + comp.y
+                        if pointInRect(mouseX, mouseY, sectionX + 5, buttonY, 200, 25) then
+                            comp.bg.Color = colors.hover
+                            comp.callback()
+                            return true
+                        end
+                    elseif comp.type == "keybind" then
+                        local sectionX = section.bg.Position.X
+                        local keybindY = ui.windowPos.Y + comp.y
+                        if pointInRect(mouseX, mouseY, sectionX + 5, keybindY, 200, 15) then
+                            comp.listening = true
+                            comp.text.Text = comp.name .. ": ..."
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+    else
+        ui.dragging = false
+        
+        for _, section in pairs(ui.sections) do
+            for _, comp in pairs(section.components) do
+                if comp.type == "slider" then
+                    comp.dragging = false
+                elseif comp.type == "button" then
+                    comp.bg.Color = colors.bg
+                end
+            end
+        end
+    end
+    
+    return false
+end
+
+local function handleMouseMove(mouseX, mouseY)
+    if not ui.visible then return end
+    
+    if ui.dragging then
+        ui.windowPos = Vector2.new(mouseX - ui.dragStart.X, mouseY - ui.dragStart.Y)
+        updateWindowPositions()
+    end
+    
+    for _, section in pairs(ui.sections) do
+        for _, comp in pairs(section.components) do
+            if comp.type == "slider" and comp.dragging then
+                updateSlider(comp, mouseX)
+            end
+        end
+    end
+end
+
+local function handleKeyPress(key, state)
+    if key == ui.keybind and state then
+        ui.visible = not ui.visible
+        updateVisibility()
+    end
+    
+    for _, section in pairs(ui.sections) do
+        for _, comp in pairs(section.components) do
+            if comp.type == "keybind" and comp.listening and state then
+                comp.key = key
+                comp.listening = false
+                comp.text.Text = comp.name .. ": " .. tostring(key):gsub("Enum.KeyCode.", "")
+                comp.callback(key)
+            end
+        end
+    end
+end
+
+local function updateWindowPositions()
+    ui.windowBg.Position = ui.windowPos
+    ui.windowBorder.Position = ui.windowPos
+    ui.titleBar.Position = Vector2.new(ui.windowPos.X, ui.windowPos.Y)
+    ui.titleText.Position = Vector2.new(ui.windowPos.X + 10, ui.windowPos.Y + 8)
+    ui.tabBar.Position = Vector2.new(ui.windowPos.X, ui.windowPos.Y + 30)
+    
+    for i, tab in pairs(ui.tabs) do
+        local tabX = ui.windowPos.X + 10 + (i - 1) * 85
+        tab.bg.Position = Vector2.new(tabX, ui.windowPos.Y + 35)
+        tab.text.Position = Vector2.new(tabX + 40 - (#tab.name * 3), ui.windowPos.Y + 40)
+    end
+    
+    for _, section in pairs(ui.sections) do
+        local sectionX = section.side == "Left" and ui.windowPos.X + 10 or ui.windowPos.X + ui.windowSize.X/2 + 10
+        section.bg.Position = Vector2.new(sectionX, ui.windowPos.Y + section.y)
+        section.title.Position = Vector2.new(sectionX + 5, ui.windowPos.Y + section.y + 5)
+        
+        for _, comp in pairs(section.components) do
+            local compY = ui.windowPos.Y + comp.y
+            
+            if comp.type == "toggle" then
+                comp.bg.Position = Vector2.new(sectionX + 5, compY)
+                comp.text.Position = Vector2.new(sectionX + 25, compY)
+            elseif comp.type == "slider" then
+                comp.text.Position = Vector2.new(sectionX + 5, compY)
+                comp.track.Position = Vector2.new(sectionX + 5, compY + 18)
+                comp.fill.Position = Vector2.new(sectionX + 5, compY + 18)
+                comp.handle.Position = Vector2.new(sectionX + 5, compY + 15)
+            elseif comp.type == "dropdown" then
+                comp.text.Position = Vector2.new(sectionX + 5, compY)
+                comp.bg.Position = Vector2.new(sectionX + 5, compY + 18)
+            elseif comp.type == "button" then
+                comp.bg.Position = Vector2.new(sectionX + 5, compY)
+                comp.text.Position = Vector2.new(sectionX + 105 - (#comp.name * 3), compY + 5)
+            elseif comp.type == "keybind" then
+                comp.text.Position = Vector2.new(sectionX + 5, compY)
+            end
+        end
+    end
+end
+
+local function updateTabColors()
+    for i, tab in pairs(ui.tabs) do
+        if i == ui.activeTab then
+            tab.bg.Color = colors.accent
+            tab.text.Color = colors.text
+        else
+            tab.bg.Color = colors.bg
+            tab.text.Color = colors.text2
+        end
+    end
+end
+
+local function updateVisibility()
+    ui.windowBg.Visible = ui.visible
+    ui.windowBorder.Visible = ui.visible
+    ui.titleBar.Visible = ui.visible
+    ui.titleText.Visible = ui.visible
+    ui.tabBar.Visible = ui.visible
+    
+    for _, tab in pairs(ui.tabs) do
+        tab.bg.Visible = ui.visible
+        tab.text.Visible = ui.visible
+    end
+    
+    for _, section in pairs(ui.sections) do
+        section.bg.Visible = ui.visible and section.tab.id == ui.activeTab
+        section.title.Visible = ui.visible and section.tab.id == ui.activeTab
+        
+        for _, comp in pairs(section.components) do
+            local visible = ui.visible and section.tab.id == ui.activeTab
+            
+            if comp.type == "toggle" then
+                comp.bg.Visible = visible
+                comp.text.Visible = visible
+            elseif comp.type == "slider" then
+                comp.text.Visible = visible
+                comp.track.Visible = visible
+                comp.fill.Visible = visible
+                comp.handle.Visible = visible
+            elseif comp.type == "dropdown" then
+                comp.text.Visible = visible
+                comp.bg.Visible = visible
+            elseif comp.type == "button" then
+                comp.bg.Visible = visible
+                comp.text.Visible = visible
+            elseif comp.type == "keybind" then
+                comp.text.Visible = visible
+            end
+        end
+    end
+end
+
+function rcm.new(config)
+    ui.keybind = config.keybind or Enum.KeyCode.RightShift
+    ui.windowSize = Vector2.new(config.width or 600, config.height or 500)
+    ui.windowPos = Vector2.new(config.x or 100, config.y or 100)
+    
+    createWindow()
+    
+    local lib = {}
+    
+    function lib:Tab(name)
+        local tabId = #ui.tabs + 1
+        local tab = createTab(name, tabId)
+        
+        local tabLib = {}
+        
+        function tabLib:Section(name, side)
+            side = side or "Left"
+            local section = createSection(tab, name, side)
+            table.insert(ui.sections, section)
+            
+            local secLib = {}
+            
+            function secLib:Toggle(name, callback)
+                return createToggle(section, name, callback)
+            end
+            
+            function secLib:Slider(name, min, max, default, callback)
+                return createSlider(section, name, min, max, default, callback)
+            end
+            
+            function secLib:Dropdown(name, options, callback)
+                return createDropdown(section, name, options, callback)
+            end
+            
+            function secLib:Button(name, callback)
+                return createButton(section, name, callback)
+            end
+            
+            function secLib:Keybind(name, key, callback)
+                return createKeybind(section, name, key, callback)
+            end
+            
+            return secLib
+        end
+        
+        return tabLib
+    end
+    
+    is.InputBegan:Connect(function(input, gameProcessed)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            handleMouseClick(mouse.X, mouse.Y, true)
+        elseif input.UserInputType == Enum.UserInputType.Keyboard then
+            handleKeyPress(input.KeyCode, true)
+        end
+    end)
+    
+    is.InputEnded:Connect(function(input, gameProcessed)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            handleMouseClick(mouse.X, mouse.Y, false)
+        elseif input.UserInputType == Enum.UserInputType.Keyboard then
+            handleKeyPress(input.KeyCode, false)
+        end
+    end)
+    
+    is.InputChanged:Connect(function(input, gameProcessed)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            handleMouseMove(mouse.X, mouse.Y)
+        end
+    end)
+    
+    updateTabColors()
+    updateVisibility()
+    
+    return lib
+end
+
+return rcm
