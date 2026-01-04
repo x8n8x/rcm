@@ -1,0 +1,784 @@
+local Library = {}
+
+local Drawing = game:GetService("Drawing")
+
+local Theme = {
+    Background = Color3.fromRGB(25, 25, 25),
+    Secondary = Color3.fromRGB(35, 35, 35),
+    Accent = Color3.fromRGB(100, 150, 255),
+    Text = Color3.fromRGB(255, 255, 255),
+    TextSecondary = Color3.fromRGB(180, 180, 180),
+    Border = Color3.fromRGB(60, 60, 60),
+    ToggleOn = Color3.fromRGB(100, 150, 255),
+    ToggleOff = Color3.fromRGB(80, 80, 80),
+    ButtonHover = Color3.fromRGB(120, 170, 255),
+    SliderTrack = Color3.fromRGB(50, 50, 50),
+    SliderFill = Color3.fromRGB(100, 150, 255),
+    Dropdown = Color3.fromRGB(40, 40, 40),
+    DropdownHover = Color3.fromRGB(50, 50, 50),
+    Input = Color3.fromRGB(40, 40, 40),
+    InputFocus = Color3.fromRGB(60, 60, 100)
+}
+
+local Mouse = Vector2.new(0, 0)
+local Holding = false
+local DragOffset = Vector2.new(0, 0)
+local CurrentWindow = nil
+local FocusedTextbox = nil
+
+local function GetMouseLocation()
+    return game:GetService("Players").LocalPlayer:GetMouse().Position
+end
+
+local function PointInRect(Point, RectPos, RectSize)
+    return Point.X >= RectPos.X and Point.X <= RectPos.X + RectSize.X and
+           Point.Y >= RectPos.Y and Point.Y <= RectPos.Y + RectSize.Y
+end
+
+local function CreateDrawingObject(Type, Properties)
+    local Object = Drawing.new(Type)
+    for Property, Value in pairs(Properties) do
+        if Object[Property] ~= nil then
+            Object[Property] = Value
+        end
+    end
+    return Object
+end
+
+local function CreateWindow(Name, Position, Size)
+    local Window = {
+        Name = Name,
+        Position = Position,
+        Size = Size,
+        Visible = true,
+        Pages = {},
+        CurrentPage = nil,
+        Dragging = false,
+        Elements = {}
+    }
+    
+    Window.Background = CreateDrawingObject("Square", {
+        Size = Size,
+        Position = Position,
+        Color = Theme.Background,
+        Filled = true,
+        Rounding = 8,
+        ZIndex = 1
+    })
+    
+    Window.Border = CreateDrawingObject("Square", {
+        Size = Size,
+        Position = Position,
+        Color = Theme.Border,
+        Filled = false,
+        Thickness = 1,
+        Rounding = 8,
+        ZIndex = 2
+    })
+    
+    Window.TitleBar = CreateDrawingObject("Square", {
+        Size = Vector2.new(Size.X, 30),
+        Position = Position,
+        Color = Theme.Secondary,
+        Filled = true,
+        Rounding = 8,
+        ZIndex = 3
+    })
+    
+    Window.Title = CreateDrawingObject("Text", {
+        Text = Name,
+        Position = Position + Vector2.new(10, 8),
+        Size = 13,
+        Font = 2,
+        Color = Theme.Text,
+        ZIndex = 4
+    })
+    
+    Window.ContentArea = CreateDrawingObject("Square", {
+        Size = Vector2.new(Size.X - 20, Size.Y - 50),
+        Position = Position + Vector2.new(10, 40),
+        Color = Theme.Background,
+        Filled = true,
+        ZIndex = 0
+    })
+    
+    function Window:UpdatePosition(NewPosition)
+        self.Position = NewPosition
+        self.Background.Position = NewPosition
+        self.Border.Position = NewPosition
+        self.TitleBar.Position = NewPosition
+        self.Title.Position = NewPosition + Vector2.new(10, 8)
+        self.ContentArea.Position = NewPosition + Vector2.new(10, 40)
+        
+        for _, Page in pairs(self.Pages) do
+            Page:UpdatePosition(NewPosition + Vector2.new(10, 40))
+        end
+    end
+    
+    function Window:ToggleVisibility()
+        self.Visible = not self.Visible
+        self.Background.Visible = self.Visible
+        self.Border.Visible = self.Visible
+        self.TitleBar.Visible = self.Visible
+        self.Title.Visible = self.Visible
+        self.ContentArea.Visible = self.Visible
+        
+        for _, Page in pairs(self.Pages) do
+            Page:SetVisible(self.Visible)
+        end
+    end
+    
+    function Window:AddPage(Name)
+        local Page = {
+            Name = Name,
+            Window = self,
+            Position = self.Position + Vector2.new(10, 40),
+            Size = Vector2.new(self.Size.X - 20, self.Size.Y - 50),
+            Visible = self.Visible,
+            Sections = {},
+            CurrentSection = nil
+        }
+        
+        function Page:UpdatePosition(NewPosition)
+            self.Position = NewPosition
+            for _, Section in pairs(self.Sections) do
+                Section:UpdatePosition(NewPosition)
+            end
+        end
+        
+        function Page:SetVisible(Visible)
+            self.Visible = Visible
+            for _, Section in pairs(self.Sections) do
+                Section:SetVisible(Visible)
+            end
+        end
+        
+        function Page:AddSection(Name)
+            local Section = {
+                Name = Name,
+                Page = self,
+                Position = self.Position,
+                Size = Vector2.new(self.Size.X, 0),
+                Visible = self.Visible,
+                Elements = {},
+                ElementOffset = 0
+            }
+            
+            Section.Background = CreateDrawingObject("Square", {
+                Size = Section.Size,
+                Position = Section.Position,
+                Color = Theme.Secondary,
+                Filled = true,
+                Rounding = 4,
+                ZIndex = 1
+            })
+            
+            Section.Title = CreateDrawingObject("Text", {
+                Text = Name,
+                Position = Section.Position + Vector2.new(5, 2),
+                Size = 12,
+                Font = 2,
+                Color = Theme.Text,
+                ZIndex = 2
+            })
+            
+            function Section:UpdatePosition(NewPosition)
+                self.Position = NewPosition
+                self.Background.Position = NewPosition
+                self.Title.Position = NewPosition + Vector2.new(5, 2)
+                
+                local CurrentY = 25
+                for _, Element in pairs(self.Elements) do
+                    Element:UpdatePosition(Vector2.new(NewPosition.X + 5, NewPosition.Y + CurrentY))
+                    CurrentY = CurrentY + Element:GetHeight() + 5
+                end
+            end
+            
+            function Section:SetVisible(Visible)
+                self.Visible = Visible
+                self.Background.Visible = Visible
+                self.Title.Visible = Visible
+                for _, Element in pairs(self.Elements) do
+                    Element:SetVisible(Visible)
+                end
+            end
+            
+            function Section:AddToggle(Name, Callback)
+                local Toggle = {
+                    Name = Name,
+                    Section = self,
+                    Position = self.Position,
+                    Size = Vector2.new(self.Size.X - 10, 20),
+                    Visible = self.Visible,
+                    Value = false,
+                    Callback = Callback or function() end
+                }
+                
+                Toggle.Label = CreateDrawingObject("Text", {
+                    Text = Name,
+                    Position = Toggle.Position,
+                    Size = 12,
+                    Font = 2,
+                    Color = Theme.Text,
+                    ZIndex = 3
+                })
+                
+                Toggle.Box = CreateDrawingObject("Square", {
+                    Size = Vector2.new(16, 16),
+                    Position = Toggle.Position + Vector2.new(self.Size.X - 26, 2),
+                    Color = Theme.ToggleOff,
+                    Filled = true,
+                    Rounding = 2,
+                    ZIndex = 3
+                })
+                
+                function Toggle:UpdatePosition(NewPosition)
+                    self.Position = NewPosition
+                    self.Label.Position = NewPosition
+                    self.Box.Position = NewPosition + Vector2.new(self.Section.Size.X - 26, 2)
+                end
+                
+                function Toggle:SetVisible(Visible)
+                    self.Visible = Visible
+                    self.Label.Visible = Visible
+                    self.Box.Visible = Visible
+                end
+                
+                function Toggle:GetHeight()
+                    return 20
+                end
+                
+                function Toggle:Toggle()
+                    self.Value = not self.Value
+                    self.Box.Color = self.Value and Theme.ToggleOn or Theme.ToggleOff
+                    self.Callback(self.Value)
+                end
+                
+                table.insert(self.Elements, Toggle)
+                self.ElementOffset = self.ElementOffset + Toggle:GetHeight() + 5
+                self.Size = Vector2.new(self.Size.X, self.ElementOffset)
+                self.Background.Size = self.Size
+                
+                return Toggle
+            end
+            
+            function Section:AddButton(Name, Callback)
+                local Button = {
+                    Name = Name,
+                    Section = self,
+                    Position = self.Position,
+                    Size = Vector2.new(self.Size.X - 10, 25),
+                    Visible = self.Visible,
+                    Callback = Callback or function() end,
+                    Hovering = false
+                }
+                
+                Button.Background = CreateDrawingObject("Square", {
+                    Size = Button.Size,
+                    Position = Button.Position,
+                    Color = Theme.Secondary,
+                    Filled = true,
+                    Rounding = 4,
+                    ZIndex = 3
+                })
+                
+                Button.Label = CreateDrawingObject("Text", {
+                    Text = Name,
+                    Position = Button.Position + Vector2.new(5, 6),
+                    Size = 12,
+                    Font = 2,
+                    Color = Theme.Text,
+                    ZIndex = 4
+                })
+                
+                function Button:UpdatePosition(NewPosition)
+                    self.Position = NewPosition
+                    self.Background.Position = NewPosition
+                    self.Label.Position = NewPosition + Vector2.new(5, 6)
+                end
+                
+                function Button:SetVisible(Visible)
+                    self.Visible = Visible
+                    self.Background.Visible = Visible
+                    self.Label.Visible = Visible
+                end
+                
+                function Button:GetHeight()
+                    return 25
+                end
+                
+                function Button:CheckHover()
+                    local MousePos = GetMouseLocation()
+                    local WasHovering = self.Hovering
+                    self.Hovering = PointInRect(MousePos, self.Position, self.Size)
+                    
+                    if self.Hovering ~= WasHovering then
+                        self.Background.Color = self.Hovering and Theme.ButtonHover or Theme.Secondary
+                    end
+                end
+                
+                function Button:Click()
+                    if self.Hovering then
+                        self.Callback()
+                    end
+                end
+                
+                table.insert(self.Elements, Button)
+                self.ElementOffset = self.ElementOffset + Button:GetHeight() + 5
+                self.Size = Vector2.new(self.Size.X, self.ElementOffset)
+                self.Background.Size = self.Size
+                
+                return Button
+            end
+            
+            function Section:AddSlider(Name, Min, Max, Default, Callback)
+                local Slider = {
+                    Name = Name,
+                    Section = self,
+                    Position = self.Position,
+                    Size = Vector2.new(self.Size.X - 10, 35),
+                    Visible = self.Visible,
+                    Value = Default or Min,
+                    Min = Min,
+                    Max = Max,
+                    Callback = Callback or function() end,
+                    Dragging = false
+                }
+                
+                Slider.Label = CreateDrawingObject("Text", {
+                    Text = Name .. ": " .. math.floor(Slider.Value),
+                    Position = Slider.Position,
+                    Size = 12,
+                    Font = 2,
+                    Color = Theme.Text,
+                    ZIndex = 3
+                })
+                
+                Slider.Track = CreateDrawingObject("Square", {
+                    Size = Vector2.new(self.Size.X - 30, 4),
+                    Position = Slider.Position + Vector2.new(5, 20),
+                    Color = Theme.SliderTrack,
+                    Filled = true,
+                    Rounding = 2,
+                    ZIndex = 3
+                })
+                
+                Slider.Fill = CreateDrawingObject("Square", {
+                    Size = Vector2.new(0, 4),
+                    Position = Slider.Position + Vector2.new(5, 20),
+                    Color = Theme.SliderFill,
+                    Filled = true,
+                    Rounding = 2,
+                    ZIndex = 4
+                })
+                
+                Slider.Handle = CreateDrawingObject("Circle", {
+                    Radius = 6,
+                    Position = Slider.Position + Vector2.new(5, 22),
+                    Color = Theme.SliderFill,
+                    Filled = true,
+                    ZIndex = 5
+                })
+                
+                function Slider:UpdatePosition(NewPosition)
+                    self.Position = NewPosition
+                    self.Label.Position = NewPosition
+                    self.Track.Position = NewPosition + Vector2.new(5, 20)
+                    self.Fill.Position = NewPosition + Vector2.new(5, 20)
+                    self.Handle.Position = NewPosition + Vector2.new(5 + (self.Value - self.Min) / (self.Max - self.Min) * (self.Size.X - 30), 22)
+                end
+                
+                function Slider:SetVisible(Visible)
+                    self.Visible = Visible
+                    self.Label.Visible = Visible
+                    self.Track.Visible = Visible
+                    self.Fill.Visible = Visible
+                    self.Handle.Visible = Visible
+                end
+                
+                function Slider:GetHeight()
+                    return 35
+                end
+                
+                function Slider:UpdateValue(MouseX)
+                    local RelativeX = MouseX - self.Position.X - 5
+                    local Percentage = math.clamp(RelativeX / (self.Size.X - 30), 0, 1)
+                    self.Value = self.Min + (self.Max - self.Min) * Percentage
+                    self.Label.Text = self.Name .. ": " .. math.floor(self.Value)
+                    
+                    local FillWidth = Percentage * (self.Size.X - 30)
+                    self.Fill.Size = Vector2.new(FillWidth, 4)
+                    self.Handle.Position = Vector2.new(self.Position.X + 5 + FillWidth, self.Position.Y + 22)
+                    
+                    self.Callback(self.Value)
+                end
+                
+                function Slider:CheckDrag()
+                    local MousePos = GetMouseLocation()
+                    local HandlePos = self.Handle.Position
+                    
+                    if self.Dragging then
+                        self:UpdateValue(MousePos.X)
+                        return
+                    end
+                    
+                    local Distance = (MousePos - HandlePos).Magnitude
+                    if Distance <= 8 then
+                        if Holding then
+                            self.Dragging = true
+                        end
+                    end
+                end
+                
+                table.insert(self.Elements, Slider)
+                self.ElementOffset = self.ElementOffset + Slider:GetHeight() + 5
+                self.Size = Vector2.new(self.Size.X, self.ElementOffset)
+                self.Background.Size = self.Size
+                
+                return Slider
+            end
+            
+            function Section:AddDropdown(Name, Options, Default, Callback)
+                local Dropdown = {
+                    Name = Name,
+                    Section = self,
+                    Position = self.Position,
+                    Size = Vector2.new(self.Size.X - 10, 25),
+                    Visible = self.Visible,
+                    Options = Options or {},
+                    Current = Default or Options[1],
+                    Callback = Callback or function() end,
+                    Open = false,
+                    Hovering = false,
+                    SelectedIndex = 1
+                }
+                
+                for i, Option in ipairs(Dropdown.Options) do
+                    if Option == Dropdown.Current then
+                        Dropdown.SelectedIndex = i
+                        break
+                    end
+                end
+                
+                Dropdown.Background = CreateDrawingObject("Square", {
+                    Size = Dropdown.Size,
+                    Position = Dropdown.Position,
+                    Color = Theme.Dropdown,
+                    Filled = true,
+                    Rounding = 4,
+                    ZIndex = 3
+                })
+                
+                Dropdown.Label = CreateDrawingObject("Text", {
+                    Text = Name .. ": " .. Dropdown.Current,
+                    Position = Dropdown.Position + Vector2.new(5, 6),
+                    Size = 12,
+                    Font = 2,
+                    Color = Theme.Text,
+                    ZIndex = 4
+                })
+                
+                Dropdown.Arrow = CreateDrawingObject("Text", {
+                    Text = "▼",
+                    Position = Dropdown.Position + Vector2.new(Dropdown.Size.X - 20, 8),
+                    Size = 10,
+                    Font = 2,
+                    Color = Theme.TextSecondary,
+                    ZIndex = 4
+                })
+                
+                Dropdown.MenuBackground = CreateDrawingObject("Square", {
+                    Size = Vector2.new(Dropdown.Size.X, #Dropdown.Options * 20),
+                    Position = Dropdown.Position + Vector2.new(0, Dropdown.Size.Y),
+                    Color = Theme.Dropdown,
+                    Filled = true,
+                    Rounding = 4,
+                    Visible = false,
+                    ZIndex = 5
+                })
+                
+                Dropdown.OptionBackgrounds = {}
+                Dropdown.OptionLabels = {}
+                
+                for i, Option in ipairs(Dropdown.Options) do
+                    local OptionBg = CreateDrawingObject("Square", {
+                        Size = Vector2.new(Dropdown.Size.X, 20),
+                        Position = Dropdown.Position + Vector2.new(0, Dropdown.Size.Y + (i - 1) * 20),
+                        Color = Theme.Dropdown,
+                        Filled = true,
+                        Visible = false,
+                        ZIndex = 6
+                    })
+                    
+                    local OptionLabel = CreateDrawingObject("Text", {
+                        Text = Option,
+                        Position = Dropdown.Position + Vector2.new(5, Dropdown.Size.Y + (i - 1) * 20 + 4),
+                        Size = 12,
+                        Font = 2,
+                        Color = Theme.Text,
+                        Visible = false,
+                        ZIndex = 7
+                    })
+                    
+                    table.insert(Dropdown.OptionBackgrounds, OptionBg)
+                    table.insert(Dropdown.OptionLabels, OptionLabel)
+                end
+                
+                function Dropdown:UpdatePosition(NewPosition)
+                    self.Position = NewPosition
+                    self.Background.Position = NewPosition
+                    self.Label.Position = NewPosition + Vector2.new(5, 6)
+                    self.Arrow.Position = NewPosition + Vector2.new(self.Size.X - 20, 8)
+                    self.MenuBackground.Position = NewPosition + Vector2.new(0, self.Size.Y)
+                    
+                    for i, OptionBg in ipairs(self.OptionBackgrounds) do
+                        OptionBg.Position = NewPosition + Vector2.new(0, self.Size.Y + (i - 1) * 20)
+                    end
+                    
+                    for i, OptionLabel in ipairs(self.OptionLabels) do
+                        OptionLabel.Position = NewPosition + Vector2.new(5, self.Size.Y + (i - 1) * 20 + 4)
+                    end
+                end
+                
+                function Dropdown:SetVisible(Visible)
+                    self.Visible = Visible
+                    self.Background.Visible = Visible
+                    self.Label.Visible = Visible
+                    self.Arrow.Visible = Visible
+                    
+                    if not Visible then
+                        self.MenuBackground.Visible = false
+                        for _, OptionBg in ipairs(self.OptionBackgrounds) do
+                            OptionBg.Visible = false
+                        end
+                        for _, OptionLabel in ipairs(self.OptionLabels) do
+                            OptionLabel.Visible = false
+                        end
+                    end
+                end
+                
+                function Dropdown:GetHeight()
+                    return 25
+                end
+                
+                function Dropdown:Toggle()
+                    self.Open = not self.Open
+                    self.MenuBackground.Visible = self.Open
+                    
+                    for i, OptionBg in ipairs(self.OptionBackgrounds) do
+                        OptionBg.Visible = self.Open
+                    end
+                    
+                    for i, OptionLabel in ipairs(self.OptionLabels) do
+                        OptionLabel.Visible = self.Open
+                    end
+                    
+                    self.Arrow.Text = self.Open and "▲" or "▼"
+                end
+                
+                function Dropdown:SelectOption(Index)
+                    if Index >= 1 and Index <= #self.Options then
+                        self.SelectedIndex = Index
+                        self.Current = self.Options[Index]
+                        self.Label.Text = self.Name .. ": " .. self.Current
+                        self.Callback(self.Current)
+                        self:Toggle()
+                    end
+                end
+                
+                function Dropdown:CheckHover()
+                    local MousePos = GetMouseLocation()
+                    
+                    local WasHovering = self.Hovering
+                    self.Hovering = PointInRect(MousePos, self.Position, self.Size)
+                    
+                    if self.Hovering ~= WasHovering then
+                        self.Background.Color = self.Hovering and Theme.DropdownHover or Theme.Dropdown
+                    end
+                    
+                    if self.Open then
+                        for i, OptionBg in ipairs(self.OptionBackgrounds) do
+                            local OptionPos = self.Position + Vector2.new(0, self.Size.Y + (i - 1) * 20)
+                            local OptionHovering = PointInRect(MousePos, OptionPos, Vector2.new(self.Size.X, 20))
+                            OptionBg.Color = OptionHovering and Theme.DropdownHover or Theme.Dropdown
+                        end
+                    end
+                end
+                
+                function Dropdown:Click()
+                    if self.Hovering then
+                        self:Toggle()
+                    elseif self.Open then
+                        local MousePos = GetMouseLocation()
+                        for i, _ in ipairs(self.Options) do
+                            local OptionPos = self.Position + Vector2.new(0, self.Size.Y + (i - 1) * 20)
+                            if PointInRect(MousePos, OptionPos, Vector2.new(self.Size.X, 20)) then
+                                self:SelectOption(i)
+                                break
+                            end
+                        end
+                    end
+                end
+                
+                table.insert(self.Elements, Dropdown)
+                self.ElementOffset = self.ElementOffset + Dropdown:GetHeight() + 5
+                self.Size = Vector2.new(self.Size.X, self.ElementOffset)
+                self.Background.Size = self.Size
+                
+                return Dropdown
+            end
+            
+            function Section:AddLabel(Name)
+                local Label = {
+                    Name = Name,
+                    Section = self,
+                    Position = self.Position,
+                    Size = Vector2.new(self.Size.X - 10, 15),
+                    Visible = self.Visible
+                }
+                
+                Label.Text = CreateDrawingObject("Text", {
+                    Text = Name,
+                    Position = Label.Position,
+                    Size = 12,
+                    Font = 2,
+                    Color = Theme.TextSecondary,
+                    ZIndex = 3
+                })
+                
+                function Label:UpdatePosition(NewPosition)
+                    self.Position = NewPosition
+                    self.Text.Position = NewPosition
+                end
+                
+                function Label:SetVisible(Visible)
+                    self.Visible = Visible
+                    self.Text.Visible = Visible
+                end
+                
+                function Label:GetHeight()
+                    return 15
+                end
+                
+                function Label:SetText(Text)
+                    self.Text.Text = Text
+                end
+                
+                table.insert(self.Elements, Label)
+                self.ElementOffset = self.ElementOffset + Label:GetHeight() + 5
+                self.Size = Vector2.new(self.Size.X, self.ElementOffset)
+                self.Background.Size = self.Size
+                
+                return Label
+            end
+            
+            table.insert(self.Sections, Section)
+            if not self.CurrentSection then
+                self.CurrentSection = Section
+            end
+            
+            return Section
+        end
+        
+        table.insert(self.Pages, Page)
+        if not self.CurrentPage then
+            self.CurrentPage = Page
+        end
+        
+        return Page
+    end
+    
+    function Window:HandleInput()
+        local MousePos = GetMouseLocation()
+        
+        if self.Dragging then
+            self:UpdatePosition(MousePos - DragOffset)
+            return
+        end
+        
+        local TitleBarRect = {
+            Position = self.Position,
+            Size = Vector2.new(self.Size.X, 30)
+        }
+        
+        if PointInRect(MousePos, TitleBarRect.Position, TitleBarRect.Size) then
+            if Holding then
+                self.Dragging = true
+                DragOffset = MousePos - self.Position
+            end
+        end
+    end
+    
+    return Window
+end
+
+function Library:CreateWindow(Name, Position, Size)
+    Position = Position or Vector2.new(100, 100)
+    Size = Size or Vector2.new(500, 400)
+    local Window = CreateWindow(Name, Position, Size)
+    table.insert(self.Windows or {}, Window)
+    return Window
+end
+
+Library.Windows = {}
+
+game:GetService("UserInputService").InputBegan:Connect(function(Input)
+    if Input.UserInputType == Enum.UserInputType.MouseButton1 then
+        Holding = true
+        
+        for _, Window in pairs(Library.Windows) do
+            for _, Page in pairs(Window.Pages) do
+                for _, Section in pairs(Page.Sections) do
+                    for _, Element in pairs(Section.Elements) do
+                        if Element.Click then
+                            Element:Click()
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+game:GetService("UserInputService").InputEnded:Connect(function(Input)
+    if Input.UserInputType == Enum.UserInputType.MouseButton1 then
+        Holding = false
+        
+        for _, Window in pairs(Library.Windows) do
+            Window.Dragging = false
+            
+            for _, Page in pairs(Window.Pages) do
+                for _, Section in pairs(Page.Sections) do
+                    for _, Element in pairs(Section.Elements) do
+                        if Element.Dragging ~= nil then
+                            Element.Dragging = false
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+game:GetService("RunService").RenderStepped:Connect(function()
+    Mouse = GetMouseLocation()
+    
+    for _, Window in pairs(Library.Windows) do
+        Window:HandleInput()
+        
+        for _, Page in pairs(Window.Pages) do
+            for _, Section in pairs(Page.Sections) do
+                for _, Element in pairs(Section.Elements) do
+                    if Element.CheckHover then
+                        Element:CheckHover()
+                    end
+                    if Element.CheckDrag then
+                        Element:CheckDrag()
+                    end
+                end
+            end
+        end
+    end
+end)
+
+return Library
