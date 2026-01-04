@@ -1,0 +1,522 @@
+local Library = {}
+
+local Theme = {
+    Background = Color3.fromRGB(25, 25, 25),
+    Secondary = Color3.fromRGB(35, 35, 35),
+    Accent = Color3.fromRGB(100, 150, 255),
+    Text = Color3.fromRGB(255, 255, 255),
+    TextSecondary = Color3.fromRGB(180, 180, 180),
+    Border = Color3.fromRGB(60, 60, 60),
+    ToggleOn = Color3.fromRGB(100, 150, 255),
+    ToggleOff = Color3.fromRGB(80, 80, 80),
+    ButtonHover = Color3.fromRGB(120, 170, 255),
+    SliderTrack = Color3.fromRGB(50, 50, 50),
+    SliderFill = Color3.fromRGB(100, 150, 255),
+    Dropdown = Color3.fromRGB(40, 40, 40),
+    DropdownHover = Color3.fromRGB(50, 50, 50),
+    Input = Color3.fromRGB(40, 40, 40),
+    InputFocus = Color3.fromRGB(60, 60, 100)
+}
+
+local Mouse = vector.create(0, 0)
+local Holding = false
+local DragOffset = vector.create(0, 0)
+local CurrentWindow = nil
+local FocusedTextbox = nil
+
+local function GetMouseLocation()
+    return game:GetService("MouseService"):GetMouseLocation()
+end
+
+local function PointInRect(Point, RectPos, RectSize)
+    return Point.X >= RectPos.X and Point.X <= RectPos.X + RectSize.X and
+           Point.Y >= RectPos.Y and Point.Y <= RectPos.Y + RectSize.Y
+end
+
+local function CreateWindow(Name, Position, Size)
+    local Window = {
+        Name = Name,
+        Position = Position,
+        Size = Size,
+        Visible = true,
+        Pages = {},
+        CurrentPage = nil,
+        Dragging = false,
+        Elements = {}
+    }
+    
+    function Window:UpdatePosition(NewPosition)
+        self.Position = NewPosition
+        for _, Page in pairs(self.Pages) do
+            Page:UpdatePosition(NewPosition + vector.create(10, 40))
+        end
+    end
+    
+    function Window:ToggleVisibility()
+        self.Visible = not self.Visible
+        for _, Page in pairs(self.Pages) do
+            Page:SetVisible(self.Visible)
+        end
+    end
+    
+    function Window:AddPage(Name)
+        local Page = {
+            Name = Name,
+            Window = self,
+            Position = self.Position + vector.create(10, 40),
+            Size = vector.create(self.Size.X - 20, self.Size.Y - 50),
+            Visible = self.Visible,
+            Sections = {},
+            CurrentSection = nil
+        }
+        
+        function Page:UpdatePosition(NewPosition)
+            self.Position = NewPosition
+            for _, Section in pairs(self.Sections) do
+                Section:UpdatePosition(NewPosition)
+            end
+        end
+        
+        function Page:SetVisible(Visible)
+            self.Visible = Visible
+            for _, Section in pairs(self.Sections) do
+                Section:SetVisible(Visible)
+            end
+        end
+        
+        function Page:AddSection(Name)
+            local Section = {
+                Name = Name,
+                Page = self,
+                Position = self.Position,
+                Size = vector.create(self.Size.X, 0),
+                Visible = self.Visible,
+                Elements = {},
+                ElementOffset = 0
+            }
+            
+            function Section:UpdatePosition(NewPosition)
+                self.Position = NewPosition
+                local CurrentY = 25
+                for _, Element in pairs(self.Elements) do
+                    Element:UpdatePosition(vector.create(NewPosition.X + 5, NewPosition.Y + CurrentY))
+                    CurrentY = CurrentY + Element:GetHeight() + 5
+                end
+            end
+            
+            function Section:SetVisible(Visible)
+                self.Visible = Visible
+                for _, Element in pairs(self.Elements) do
+                    Element:SetVisible(Visible)
+                end
+            end
+            
+            function Section:AddToggle(Name, Callback)
+                local Toggle = {
+                    Name = Name,
+                    Section = self,
+                    Position = self.Position,
+                    Size = vector.create(self.Size.X - 10, 20),
+                    Visible = self.Visible,
+                    Value = false,
+                    Callback = Callback or function() end
+                }
+                
+                function Toggle:UpdatePosition(NewPosition)
+                    self.Position = NewPosition
+                end
+                
+                function Toggle:SetVisible(Visible)
+                    self.Visible = Visible
+                end
+                
+                function Toggle:GetHeight()
+                    return 20
+                end
+                
+                function Toggle:Toggle()
+                    self.Value = not self.Value
+                    self.Callback(self.Value)
+                end
+                
+                function Toggle:Draw()
+                    if not self.Visible then return end
+                    
+                    DrawingImmediate.FilledRectangle(self.Position, self.Size, Theme.Secondary, 1)
+                    DrawingImmediate.Text(self.Position, 12, Theme.Text, 1, self.Name, false, "Proggy")
+                    
+                    local BoxPos = self.Position + vector.create(self.Section.Size.X - 26, 2)
+                    local BoxColor = self.Value and Theme.ToggleOn or Theme.ToggleOff
+                    DrawingImmediate.FilledRectangle(BoxPos, vector.create(16, 16), BoxColor, 1)
+                end
+                
+                table.insert(self.Elements, Toggle)
+                self.ElementOffset = self.ElementOffset + Toggle:GetHeight() + 5
+                self.Size = vector.create(self.Size.X, self.ElementOffset)
+                
+                return Toggle
+            end
+            
+            function Section:AddButton(Name, Callback)
+                local Button = {
+                    Name = Name,
+                    Section = self,
+                    Position = self.Position,
+                    Size = vector.create(self.Size.X - 10, 25),
+                    Visible = self.Visible,
+                    Callback = Callback or function() end,
+                    Hovering = false
+                }
+                
+                function Button:UpdatePosition(NewPosition)
+                    self.Position = NewPosition
+                end
+                
+                function Button:SetVisible(Visible)
+                    self.Visible = Visible
+                end
+                
+                function Button:GetHeight()
+                    return 25
+                end
+                
+                function Button:CheckHover()
+                    local MousePos = GetMouseLocation()
+                    local WasHovering = self.Hovering
+                    self.Hovering = PointInRect(MousePos, self.Position, self.Size)
+                end
+                
+                function Button:Click()
+                    if self.Hovering then
+                        self.Callback()
+                    end
+                end
+                
+                function Button:Draw()
+                    if not self.Visible then return end
+                    
+                    local Color = self.Hovering and Theme.ButtonHover or Theme.Secondary
+                    DrawingImmediate.FilledRectangle(self.Position, self.Size, Color, 1)
+                    DrawingImmediate.Text(self.Position + vector.create(5, 6), 12, Theme.Text, 1, self.Name, false, "Proggy")
+                end
+                
+                table.insert(self.Elements, Button)
+                self.ElementOffset = self.ElementOffset + Button:GetHeight() + 5
+                self.Size = vector.create(self.Size.X, self.ElementOffset)
+                
+                return Button
+            end
+            
+            function Section:AddSlider(Name, Min, Max, Default, Callback)
+                local Slider = {
+                    Name = Name,
+                    Section = self,
+                    Position = self.Position,
+                    Size = vector.create(self.Size.X - 10, 35),
+                    Visible = self.Visible,
+                    Value = Default or Min,
+                    Min = Min,
+                    Max = Max,
+                    Callback = Callback or function() end,
+                    Dragging = false
+                }
+                
+                function Slider:UpdatePosition(NewPosition)
+                    self.Position = NewPosition
+                end
+                
+                function Slider:SetVisible(Visible)
+                    self.Visible = Visible
+                end
+                
+                function Slider:GetHeight()
+                    return 35
+                end
+                
+                function Slider:UpdateValue(MouseX)
+                    local RelativeX = MouseX - self.Position.X - 5
+                    local Percentage = math.clamp(RelativeX / (self.Size.X - 30), 0, 1)
+                    self.Value = self.Min + (self.Max - self.Min) * Percentage
+                    self.Callback(self.Value)
+                end
+                
+                function Slider:CheckDrag()
+                    local MousePos = GetMouseLocation()
+                    local HandlePos = self.Position + vector.create(5 + (self.Value - self.Min) / (self.Max - self.Min) * (self.Size.X - 30), 22)
+                    
+                    if self.Dragging then
+                        self:UpdateValue(MousePos.X)
+                        return
+                    end
+                    
+                    local Distance = vector.magnitude(MousePos - HandlePos)
+                    if Distance <= 8 then
+                        if Holding then
+                            self.Dragging = true
+                        end
+                    end
+                end
+                
+                function Slider:Draw()
+                    if not self.Visible then return end
+                    
+                    DrawingImmediate.Text(self.Position, 12, Theme.Text, 1, self.Name .. ": " .. math.floor(self.Value), false, "Proggy")
+                    
+                    local TrackPos = self.Position + vector.create(5, 20)
+                    DrawingImmediate.FilledRectangle(TrackPos, vector.create(self.Size.X - 30, 4), Theme.SliderTrack, 1)
+                    
+                    local Percentage = (self.Value - self.Min) / (self.Max - self.Min)
+                    local FillWidth = Percentage * (self.Size.X - 30)
+                    DrawingImmediate.FilledRectangle(TrackPos, vector.create(FillWidth, 4), Theme.SliderFill, 1)
+                    
+                    local HandlePos = self.Position + vector.create(5 + FillWidth, 22)
+                    DrawingImmediate.FilledCircle(HandlePos, 6, Theme.SliderFill, 1)
+                end
+                
+                table.insert(self.Elements, Slider)
+                self.ElementOffset = self.ElementOffset + Slider:GetHeight() + 5
+                self.Size = vector.create(self.Size.X, self.ElementOffset)
+                
+                return Slider
+            end
+            
+            function Section:AddDropdown(Name, Options, Default, Callback)
+                local Dropdown = {
+                    Name = Name,
+                    Section = self,
+                    Position = self.Position,
+                    Size = vector.create(self.Size.X - 10, 25),
+                    Visible = self.Visible,
+                    Options = Options or {},
+                    Current = Default or Options[1],
+                    Callback = Callback or function() end,
+                    Open = false,
+                    Hovering = false,
+                    SelectedIndex = 1
+                }
+                
+                for i, Option in ipairs(Dropdown.Options) do
+                    if Option == Dropdown.Current then
+                        Dropdown.SelectedIndex = i
+                        break
+                    end
+                end
+                
+                function Dropdown:UpdatePosition(NewPosition)
+                    self.Position = NewPosition
+                end
+                
+                function Dropdown:SetVisible(Visible)
+                    self.Visible = Visible
+                end
+                
+                function Dropdown:GetHeight()
+                    return 25
+                end
+                
+                function Dropdown:Toggle()
+                    self.Open = not self.Open
+                end
+                
+                function Dropdown:SelectOption(Index)
+                    if Index >= 1 and Index <= #self.Options then
+                        self.SelectedIndex = Index
+                        self.Current = self.Options[Index]
+                        self.Callback(self.Current)
+                        self:Toggle()
+                    end
+                end
+                
+                function Dropdown:CheckHover()
+                    local MousePos = GetMouseLocation()
+                    local WasHovering = self.Hovering
+                    self.Hovering = PointInRect(MousePos, self.Position, self.Size)
+                end
+                
+                function Dropdown:Click()
+                    if self.Hovering then
+                        self:Toggle()
+                    elseif self.Open then
+                        local MousePos = GetMouseLocation()
+                        for i, _ in ipairs(self.Options) do
+                            local OptionPos = self.Position + vector.create(0, self.Size.Y + (i - 1) * 20)
+                            if PointInRect(MousePos, OptionPos, vector.create(self.Size.X, 20)) then
+                                self:SelectOption(i)
+                                break
+                            end
+                        end
+                    end
+                end
+                
+                function Dropdown:Draw()
+                    if not self.Visible then return end
+                    
+                    local Color = self.Hovering and Theme.DropdownHover or Theme.Dropdown
+                    DrawingImmediate.FilledRectangle(self.Position, self.Size, Color, 1)
+                    DrawingImmediate.Text(self.Position + vector.create(5, 6), 12, Theme.Text, 1, self.Name .. ": " .. self.Current, false, "Proggy")
+                    
+                    local ArrowPos = self.Position + vector.create(self.Size.X - 20, 8)
+                    DrawingImmediate.Text(ArrowPos, 10, Theme.TextSecondary, 1, self.Open and "▲" or "▼", false, "Proggy")
+                    
+                    if self.Open then
+                        local MenuPos = self.Position + vector.create(0, self.Size.Y)
+                        local MenuSize = vector.create(self.Size.X, #self.Options * 20)
+                        DrawingImmediate.FilledRectangle(MenuPos, MenuSize, Theme.Dropdown, 1)
+                        
+                        for i, Option in ipairs(self.Options) do
+                            local OptionPos = MenuPos + vector.create(0, (i - 1) * 20)
+                            local OptionHovering = PointInRect(GetMouseLocation(), OptionPos, vector.create(self.Size.X, 20))
+                            local OptionColor = OptionHovering and Theme.DropdownHover or Theme.Dropdown
+                            DrawingImmediate.FilledRectangle(OptionPos, vector.create(self.Size.X, 20), OptionColor, 1)
+                            DrawingImmediate.Text(OptionPos + vector.create(5, 4), 12, Theme.Text, 1, Option, false, "Proggy")
+                        end
+                    end
+                end
+                
+                table.insert(self.Elements, Dropdown)
+                self.ElementOffset = self.ElementOffset + Dropdown:GetHeight() + 5
+                self.Size = vector.create(self.Size.X, self.ElementOffset)
+                
+                return Dropdown
+            end
+            
+            function Section:AddLabel(Name)
+                local Label = {
+                    Name = Name,
+                    Section = self,
+                    Position = self.Position,
+                    Size = vector.create(self.Size.X - 10, 15),
+                    Visible = self.Visible
+                }
+                
+                function Label:UpdatePosition(NewPosition)
+                    self.Position = NewPosition
+                end
+                
+                function Label:SetVisible(Visible)
+                    self.Visible = Visible
+                end
+                
+                function Label:GetHeight()
+                    return 15
+                end
+                
+                function Label:SetText(Text)
+                    self.Name = Text
+                end
+                
+                function Label:Draw()
+                    if not self.Visible then return end
+                    DrawingImmediate.Text(self.Position, 12, Theme.TextSecondary, 1, self.Name, false, "Proggy")
+                end
+                
+                table.insert(self.Elements, Label)
+                self.ElementOffset = self.ElementOffset + Label:GetHeight() + 5
+                self.Size = vector.create(self.Size.X, self.ElementOffset)
+                
+                return Label
+            end
+            
+            table.insert(self.Sections, Section)
+            if not self.CurrentSection then
+                self.CurrentSection = Section
+            end
+            
+            return Section
+        end
+        
+        table.insert(self.Pages, Page)
+        if not self.CurrentPage then
+            self.CurrentPage = Page
+        end
+        
+        return Page
+    end
+    
+    function Window:HandleInput()
+        local MousePos = GetMouseLocation()
+        
+        if self.Dragging then
+            self:UpdatePosition(MousePos - DragOffset)
+            return
+        end
+        
+        local TitleBarRect = {
+            Position = self.Position,
+            Size = vector.create(self.Size.X, 30)
+        }
+        
+        if PointInRect(MousePos, TitleBarRect.Position, TitleBarRect.Size) then
+            if Holding then
+                self.Dragging = true
+                DragOffset = MousePos - self.Position
+            end
+        end
+    end
+    
+    function Window:Draw()
+        if not self.Visible then return end
+        
+        DrawingImmediate.FilledRectangle(self.Position, self.Size, Theme.Background, 1)
+        DrawingImmediate.Rectangle(self.Position, self.Size, Theme.Border, 1, 1)
+        
+        DrawingImmediate.FilledRectangle(self.Position, vector.create(self.Size.X, 30), Theme.Secondary, 1)
+        DrawingImmediate.Text(self.Position + vector.create(10, 8), 13, Theme.Text, 1, self.Name, false, "Proggy")
+        
+        local ContentPos = self.Position + vector.create(10, 40)
+        local ContentSize = vector.create(self.Size.X - 20, self.Size.Y - 50)
+        DrawingImmediate.FilledRectangle(ContentPos, ContentSize, Theme.Background, 1)
+        
+        for _, Page in pairs(self.Pages) do
+            for _, Section in pairs(Page.Sections) do
+                DrawingImmediate.FilledRectangle(Section.Position, Section.Size, Theme.Secondary, 1)
+                DrawingImmediate.Text(Section.Position + vector.create(5, 2), 12, Theme.Text, 1, Section.Name, false, "Proggy")
+                
+                for _, Element in pairs(Section.Elements) do
+                    if Element.Draw then
+                        Element:Draw()
+                    end
+                end
+            end
+        end
+    end
+    
+    return Window
+end
+
+function Library:CreateWindow(Name, Position, Size)
+    Position = Position or vector.create(100, 100)
+    Size = Size or vector.create(500, 400)
+    local Window = CreateWindow(Name, Position, Size)
+    table.insert(self.Windows or {}, Window)
+    return Window
+end
+
+Library.Windows = {}
+
+game:GetService("RunService").Render:Connect(function()
+    Mouse = GetMouseLocation()
+    
+    for _, Window in pairs(Library.Windows) do
+        Window:HandleInput()
+        
+        for _, Page in pairs(Window.Pages) do
+            for _, Section in pairs(Page.Sections) do
+                for _, Element in pairs(Section.Elements) do
+                    if Element.CheckHover then
+                        Element:CheckHover()
+                    end
+                    if Element.CheckDrag then
+                        Element:CheckDrag()
+                    end
+                end
+            end
+        end
+    end
+    
+    for _, Window in pairs(Library.Windows) do
+        Window:Draw()
+    end
+end)
+
+return Library
