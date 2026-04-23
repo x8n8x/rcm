@@ -1,124 +1,94 @@
--- rcm for dx9ware
-local lib = {}
+-- rcm ui for dx9
+local library = {}
 local d = dx9
+
 local theme = {
-    bg = {0.023,0.023,0.023},
-    dark = {0.104,0.104,0.104},
-    txt = {1,1,1},
-    pink = {0.8039,0.0,0.4980},
-    gray = {0.588,0.588,0.588},
+    inline = {6,6,6},
+    dark = {24,24,24},
+    text = {255,255,255},
+    accent = {139,0,0},
+    section = {150,150,150},
 }
 
-local function rgb(t)
-    return {t[1]*255, t[2]*255, 0}
-end
-
 local function txt(x,y,s,c,center)
-    if center then
-        local w = d.CalcTextWidth(s)
-        x = x - w/2
-    end
-    d.DrawString({x,y}, rgb(c), s)
+    if center then x = x - d.CalcTextWidth(s)/2 end
+    d.DrawString({x,y}, c, s)
 end
 
 local function rect(x,y,w,h,c)
-    d.DrawFilledBox({x,y}, {x+w,y+h}, rgb(c))
+    d.DrawFilledBox({x,y}, {x+w,y+h}, c)
 end
 
-local function line(y,c)
-    local s = d.size()
-    d.DrawLine({0,y}, {s.width,y}, rgb(c))
-end
-
-function lib:Window(p)
+function library:Window(p)
     local w = {
         vis = true,
-        pos = p.Position or {x=50,y=60},
-        selIdx = 1,
+        x = (p.Position or {x=50,y=80}).x,
+        y = (p.Position or {x=50,y=80}).y,
+        sel = 1,
         pages = {},
         open = {},
-        last = 0,
-        cd = 0.12,
-        key = p.ToggleKey or "F1",
+        key = p.ToggleKey or "F2",
         name = p.Name or "rcm",
         ww = 280,
+        lastKey = "",
+        list = {},
     }
     
-    function w:getKey()
-        local k = d.GetKey()
-        if k and k ~= "" then return k end
-        return nil
-    end
-    
-    function w:total()
-        local c = 0
-        for i,p in ipairs(self.pages) do
-            c = c + 1
+    function w:rebuild()
+        local lst = {}
+        for i,pg in ipairs(self.pages) do
+            table.insert(lst, {typ="pg", idx=i})
             if self.open[i] then
-                for _,s in ipairs(p.secs) do
-                    c = c + #s.items
-                end
-            end
-        end
-        return c
-    end
-    
-    function w:cur()
-        local n = 0
-        for i,p in ipairs(self.pages) do
-            n = n + 1
-            if n == self.selIdx then return {type="page", idx=i} end
-            if self.open[i] then
-                for si,s in ipairs(p.secs) do
-                    for ii,it in ipairs(s.items) do
-                        n = n + 1
-                        if n == self.selIdx then 
-                            return {type="item", pIdx=i, sIdx=si, iIdx=ii, data=it}
-                        end
+                for _,s in ipairs(pg.secs) do
+                    for _,it in ipairs(s.items) do
+                        table.insert(lst, {typ="it", data=it})
                     end
                 end
             end
         end
-        return nil
+        self.list = lst
+        if self.sel > #lst and #lst>0 then self.sel = #lst end
+        if self.sel < 1 and #lst>0 then self.sel = 1 end
+        return lst
     end
     
     function w:draw()
         if not self.vis then return end
-        local x,y = self.pos.x, self.pos.y
+        
         local h = 19
-        for i,p in ipairs(self.pages) do
+        for i,pg in ipairs(self.pages) do
             h = h + 17
             if self.open[i] then
-                for _,s in ipairs(p.secs) do
+                for _,s in ipairs(pg.secs) do
                     h = h + 17 + (#s.items * 17)
                 end
             end
         end
         h = h + 4
         
-        rect(x,y,self.ww,h,theme.bg)
-        rect(x+1,y+3,self.ww-2,h-4,theme.dark)
-        rect(x,y,self.ww,2,theme.pink)
-        txt(x+self.ww/2,y+5,self.name,theme.txt,true)
+        rect(self.x,self.y,self.ww,h,theme.inline)
+        rect(self.x+1,self.y+3,self.ww-2,h-4,theme.dark)
+        rect(self.x,self.y,self.ww,2,theme.accent)
+        txt(self.x+self.ww/2,self.y+5,self.name,theme.text,true)
         
-        local cy = y + 23
-        local n = 0
-        for i,p in ipairs(self.pages) do
-            n = n + 1
-            local sel = (self.selIdx == n)
+        local cy = self.y + 23
+        local idx = 0
+        
+        for i,pg in ipairs(self.pages) do
+            idx = idx + 1
             local pre = self.open[i] and "[-]" or "[+]"
-            local col = sel and theme.pink or theme.txt
-            txt(x+5,cy+3,pre.." "..p.name,col)
+            local col = (self.sel == idx) and theme.accent or theme.text
+            txt(self.x+5,cy+3,pre.." "..pg.name,col)
             cy = cy + 17
             
             if self.open[i] then
-                for _,s in ipairs(p.secs) do
-                    txt(x+22,cy+3,"["..s.name.."]",theme.gray)
+                for _,s in ipairs(pg.secs) do
+                    txt(self.x+22,cy+3,"["..s.name.."]",theme.section)
                     cy = cy + 17
                     for _,it in ipairs(s.items) do
-                        n = n + 1
-                        local selIt = (self.selIdx == n)
-                        local colIt = selIt and theme.pink or theme.txt
+                        idx = idx + 1
+                        local selIt = (self.sel == idx)
+                        local colIt = selIt and theme.accent or theme.text
                         local str
                         if it.typ == "toggle" then
                             str = it.name.." -> "..(it.val and "ON" or "OFF")
@@ -130,7 +100,7 @@ function lib:Window(p)
                                 str = str.." "..it.com
                             end
                         end
-                        txt(x+22,cy+3,str,colIt)
+                        txt(self.x+22,cy+3,str,colIt)
                         cy = cy + 17
                     end
                 end
@@ -139,12 +109,13 @@ function lib:Window(p)
     end
     
     function w:input()
-        local now = d.Tick()
-        if now - self.last < self.cd then return end
-        
-        local k = self:getKey()
-        if not k then return end
-        self.last = now
+        local k = d.GetKey()
+        if k == "" then
+            self.lastKey = ""
+            return
+        end
+        if k == self.lastKey then return end
+        self.lastKey = k
         
         if k == "["..self.key.."]" then
             self.vis = not self.vis
@@ -152,24 +123,39 @@ function lib:Window(p)
         end
         if not self.vis then return end
         
-        local total = self:total()
-        local cur = self:cur()
+        if #self.list == 0 then return end
         
         if k == "[UP]" then
-            self.selIdx = math.max(1, self.selIdx - 1)
+            self.sel = self.sel - 1
+            if self.sel < 1 then self.sel = #self.list end
         elseif k == "[DOWN]" then
-            self.selIdx = math.min(total, self.selIdx + 1)
-        elseif k == "[LEFT]" or k == "[RIGHT]" then
-            if cur and cur.type == "item" and cur.data.typ == "slider" then
-                local delta = (k == "[LEFT]") and -1 or 1
-                cur.data.val = math.clamp(cur.data.val + delta, cur.data.min, cur.data.max)
-                if cur.data.cb then cur.data.cb(cur.data.val) end
+            self.sel = self.sel + 1
+            if self.sel > #self.list then self.sel = 1 end
+        elseif k == "[LEFT]" then
+            local cur = self.list[self.sel]
+            if cur and cur.typ == "it" and cur.data.typ == "slider" then
+                local new = cur.data.val - 1
+                if new >= cur.data.min then
+                    cur.data.val = new
+                    if cur.data.cb then cur.data.cb(cur.data.val) end
+                end
+            end
+        elseif k == "[RIGHT]" then
+            local cur = self.list[self.sel]
+            if cur and cur.typ == "it" and cur.data.typ == "slider" then
+                local new = cur.data.val + 1
+                if new <= cur.data.max then
+                    cur.data.val = new
+                    if cur.data.cb then cur.data.cb(cur.data.val) end
+                end
             end
         elseif k == "[RETURN]" then
+            local cur = self.list[self.sel]
             if cur then
-                if cur.type == "page" then
+                if cur.typ == "pg" then
                     self.open[cur.idx] = not self.open[cur.idx]
-                elseif cur.type == "item" then
+                    self:rebuild()
+                elseif cur.typ == "it" then
                     local it = cur.data
                     if it.typ == "toggle" then
                         it.val = not it.val
@@ -182,22 +168,22 @@ function lib:Window(p)
         end
     end
     
-    function w:Page(p)
-        local pg = {name = p.Name or "Page", secs = {}}
-        function pg:Section(s)
-            local sec = {name = s.Name or "Section", items = {}}
-            function sec:Toggle(t)
-                local it = {typ="toggle", name=t.Name or "Toggle", val=t.Default or false, cb=t.Callback}
+    function w:Page(pageData)
+        local pg = {name = pageData.Name or "Page", secs = {}}
+        function pg:Section(sectionData)
+            local sec = {name = sectionData.Name or "Section", items = {}}
+            function sec:Toggle(toggleData)
+                local it = {typ="toggle", name=toggleData.Name or "Toggle", val=toggleData.Default or false, cb=toggleData.Callback}
                 table.insert(sec.items, it)
                 return it
             end
-            function sec:Slider(sl)
-                local it = {typ="slider", name=sl.Name or "Slider", val=sl.Default or 0, min=sl.Min or 0, max=sl.Max or 100, cb=sl.Callback}
+            function sec:Slider(sliderData)
+                local it = {typ="slider", name=sliderData.Name or "Slider", val=sliderData.Default or 0, min=sliderData.Min or 0, max=sliderData.Max or 100, cb=sliderData.Callback}
                 table.insert(sec.items, it)
                 return it
             end
-            function sec:Button(b)
-                local it = {typ="button", name=b.Name or "Button", com=b.Comment or "", cb=b.Callback}
+            function sec:Button(buttonData)
+                local it = {typ="button", name=buttonData.Name or "Button", com=buttonData.Comment or "", cb=buttonData.Callback}
                 table.insert(sec.items, it)
                 return it
             end
@@ -208,8 +194,8 @@ function lib:Window(p)
         return pg
     end
     
-    d.ShowConsole(true)
+    w:rebuild()
     return w
 end
 
-return lib
+return library
