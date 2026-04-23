@@ -1,346 +1,215 @@
-local rcm = {}
-rcm.__index = rcm
-
-local function vec(x, y)
-    return {x = x or 0, y = y or 0}
-end
-
--- theme
-rcm.theme = {
-    bg = vec(0.023, 0.023),
-    border = vec(0.104, 0.104),
-    text = vec(1, 1),
-    pink = vec(0.8039, 0.0),
-    gray = vec(0.588, 0.588),
+-- rcm for dx9ware
+local lib = {}
+local d = dx9
+local theme = {
+    bg = {0.023,0.023,0.023},
+    dark = {0.104,0.104,0.104},
+    txt = {1,1,1},
+    pink = {0.8039,0.0,0.4980},
+    gray = {0.588,0.588,0.588},
 }
 
-local FONT = 13
-local LH = 16
-local INDENT = 20
-
-local wins = {}
-local active = nil
-local sel = nil
-local curPage = nil
-
-local function rgb(c)
-    return {c.x * 255, c.y * 255, 0}
+local function rgb(t)
+    return {t[1]*255, t[2]*255, 0}
 end
 
-local function txt(x, y, str, col)
-    dx9.DrawString({x, y}, rgb(col), str)
+local function txt(x,y,s,c,center)
+    if center then
+        local w = d.CalcTextWidth(s)
+        x = x - w/2
+    end
+    d.DrawString({x,y}, rgb(c), s)
 end
 
-local function wdt(str)
-    return dx9.CalcTextWidth(str)
+local function rect(x,y,w,h,c)
+    d.DrawFilledBox({x,y}, {x+w,y+h}, rgb(c))
 end
 
-local function line(y, col)
-    local s = dx9.size()
-    dx9.DrawLine({0, y}, {s.width, y}, rgb(col))
+local function line(y,c)
+    local s = d.size()
+    d.DrawLine({0,y}, {s.width,y}, rgb(c))
 end
 
-local function bracket(x, y, str, col, bracketCol)
-    bracketCol = bracketCol or rcm.theme.gray
-    txt(x, y, "[", bracketCol)
-    txt(x + wdt("["), y, str, col)
-    txt(x + wdt("[" .. str), y, "]", bracketCol)
-end
-
-local Item = {}
-Item.__index = Item
-
-function Item:new(d)
-    local self = setmetatable({}, Item)
-    self.name = d.Name or ""
-    self.comment = d.Comment or ""
-    self.typ = d.Type or "item"
-    self.x = 0
-    self.y = 0
-    self.h = LH
-    self.sel = false
-    return self
-end
-
-function Item:draw(x, y, selected)
-    self.x = x
-    self.y = y
-    self.sel = selected
-    local col = selected and rcm.theme.pink or rcm.theme.text
+function lib:Window(p)
+    local w = {
+        vis = true,
+        pos = p.Position or {x=50,y=60},
+        selIdx = 1,
+        pages = {},
+        open = {},
+        last = 0,
+        cd = 0.12,
+        key = p.ToggleKey or "F1",
+        name = p.Name or "rcm",
+        ww = 280,
+    }
     
-    if self.typ == "toggle" then
-        local val = self.val and "ON" or "OFF"
-        txt(x, y, self.name .. " -> ", rcm.theme.text)
-        txt(x + wdt(self.name .. " -> "), y, val, selected and rcm.theme.pink or rcm.theme.gray)
-    elseif self.typ == "slider" then
-        local disp = string.format("<%d/%d>", self.cur, self.max)
-        txt(x, y, self.name .. " -> ", rcm.theme.text)
-        txt(x + wdt(self.name .. " -> "), y, disp, selected and rcm.theme.pink or rcm.theme.gray)
-    elseif self.typ == "button" then
-        txt(x, y, self.name .. " ", rcm.theme.text)
-        if self.comment ~= "" then
-            txt(x + wdt(self.name .. " "), y, self.comment, rcm.theme.gray)
+    function w:getKey()
+        local k = d.GetKey()
+        if k and k ~= "" then return k end
+        return nil
+    end
+    
+    function w:total()
+        local c = 0
+        for i,p in ipairs(self.pages) do
+            c = c + 1
+            if self.open[i] then
+                for _,s in ipairs(p.secs) do
+                    c = c + #s.items
+                end
+            end
         end
-    elseif self.typ == "section" and self.parent then
-        local pre = self.open and "[-]" or "[+]"
-        bracket(x, y, pre, rcm.theme.gray, rcm.theme.gray)
-        txt(x + wdt("[" .. pre .. "] "), y, self.name, col)
+        return c
     end
-end
-
-function Item:activate()
-    if self.typ == "toggle" then
-        self.val = not self.val
-        if self.cb then self.cb(self.val) end
-    elseif self.typ == "slider" then
-        self.cur = self.cur + self.inc
-        if self.cur > self.max then self.cur = self.min end
-        if self.cb then self.cb(self.cur) end
-    elseif self.typ == "button" then
-        if self.cb then self.cb() end
+    
+    function w:cur()
+        local n = 0
+        for i,p in ipairs(self.pages) do
+            n = n + 1
+            if n == self.selIdx then return {type="page", idx=i} end
+            if self.open[i] then
+                for si,s in ipairs(p.secs) do
+                    for ii,it in ipairs(s.items) do
+                        n = n + 1
+                        if n == self.selIdx then 
+                            return {type="item", pIdx=i, sIdx=si, iIdx=ii, data=it}
+                        end
+                    end
+                end
+            end
+        end
+        return nil
     end
-end
-
-local Section = {}
-Section.__index = Section
-setmetatable(Section, {__index = Item})
-
-function Section:new(d)
-    local self = setmetatable(Item:new(d), Section)
-    self.typ = "section"
-    self.open = false
-    self.items = {}
-    self.y = 0
-    self.h = LH
-    return self
-end
-
-function Section:add(i)
-    i.parent = self
-    table.insert(self.items, i)
-    return i
-end
-
-function Section:toggle(d)
-    local i = {typ = "toggle", name = d.Name, val = d.Default or false, cb = d.Callback}
-    setmetatable(i, Item)
-    return self:add(i)
-end
-
-function Section:slider(d)
-    local i = {typ = "slider", name = d.Name, cur = d.Default or 0, min = d.Min or 0, max = d.Max or 100, inc = d.Increment or 1, cb = d.Callback}
-    setmetatable(i, Item)
-    return self:add(i)
-end
-
-function Section:button(d)
-    local i = {typ = "button", name = d.Name, comment = d.Comment or "", cb = d.Callback}
-    setmetatable(i, Item)
-    return self:add(i)
-end
-
-function Section:draw(x, y)
-    self.x = x
-    self.y = y
-    local col = self.sel and rcm.theme.pink or rcm.theme.gray
-    local pre = self.open and "[-]" or "[+]"
-    bracket(x, y, pre, rcm.theme.gray, rcm.theme.gray)
-    txt(x + wdt("[" .. pre .. "] "), y, self.name, col)
-    local curY = y + LH
-    if self.open then
-        for _, i in ipairs(self.items) do
-            if i.draw then
-                i:draw(x + INDENT, curY, self.sel and i == sel)
-                curY = curY + LH
+    
+    function w:draw()
+        if not self.vis then return end
+        local x,y = self.pos.x, self.pos.y
+        local h = 19
+        for i,p in ipairs(self.pages) do
+            h = h + 17
+            if self.open[i] then
+                for _,s in ipairs(p.secs) do
+                    h = h + 17 + (#s.items * 17)
+                end
+            end
+        end
+        h = h + 4
+        
+        rect(x,y,self.ww,h,theme.bg)
+        rect(x+1,y+3,self.ww-2,h-4,theme.dark)
+        rect(x,y,self.ww,2,theme.pink)
+        txt(x+self.ww/2,y+5,self.name,theme.txt,true)
+        
+        local cy = y + 23
+        local n = 0
+        for i,p in ipairs(self.pages) do
+            n = n + 1
+            local sel = (self.selIdx == n)
+            local pre = self.open[i] and "[-]" or "[+]"
+            local col = sel and theme.pink or theme.txt
+            txt(x+5,cy+3,pre.." "..p.name,col)
+            cy = cy + 17
+            
+            if self.open[i] then
+                for _,s in ipairs(p.secs) do
+                    txt(x+22,cy+3,"["..s.name.."]",theme.gray)
+                    cy = cy + 17
+                    for _,it in ipairs(s.items) do
+                        n = n + 1
+                        local selIt = (self.selIdx == n)
+                        local colIt = selIt and theme.pink or theme.txt
+                        local str
+                        if it.typ == "toggle" then
+                            str = it.name.." -> "..(it.val and "ON" or "OFF")
+                        elseif it.typ == "slider" then
+                            str = it.name.." -> <"..math.floor(it.val).."/"..it.max..">"
+                        else
+                            str = it.name
+                            if it.com and it.com ~= "" then
+                                str = str.." "..it.com
+                            end
+                        end
+                        txt(x+22,cy+3,str,colIt)
+                        cy = cy + 17
+                    end
+                end
             end
         end
     end
-    self.h = curY - y
-    return curY
-end
-
-function Section:toggleOpen()
-    self.open = not self.open
-end
-
-function Section:getItems()
-    if not self.open then return {} end
-    return self.items
-end
-
-local Page = {}
-Page.__index = Page
-
-function Page:new(d)
-    local self = setmetatable({}, Page)
-    self.name = d.Name
-    self.sections = {}
-    return self
-end
-
-function Page:section(d)
-    local s = Section:new(d)
-    table.insert(self.sections, s)
-    return s
-end
-
-function Page:draw(x, y)
-    self.x = x
-    self.y = y
-    local curY = y
-    txt(x, curY, self.name, rcm.theme.pink)
-    curY = curY + LH + 5
-    line(curY - 3, rcm.theme.pink)
-    for _, s in ipairs(self.sections) do
-        curY = s:draw(x, curY)
-    end
-    self.h = curY - y
-    return curY
-end
-
-function Page:getAll()
-    local items = {}
-    for _, s in ipairs(self.sections) do
-        table.insert(items, s)
-        if s.open then
-            for _, i in ipairs(s.items) do
-                table.insert(items, i)
+    
+    function w:input()
+        local now = d.Tick()
+        if now - self.last < self.cd then return end
+        
+        local k = self:getKey()
+        if not k then return end
+        self.last = now
+        
+        if k == "["..self.key.."]" then
+            self.vis = not self.vis
+            return
+        end
+        if not self.vis then return end
+        
+        local total = self:total()
+        local cur = self:cur()
+        
+        if k == "[UP]" then
+            self.selIdx = math.max(1, self.selIdx - 1)
+        elseif k == "[DOWN]" then
+            self.selIdx = math.min(total, self.selIdx + 1)
+        elseif k == "[LEFT]" or k == "[RIGHT]" then
+            if cur and cur.type == "item" and cur.data.typ == "slider" then
+                local delta = (k == "[LEFT]") and -1 or 1
+                cur.data.val = math.clamp(cur.data.val + delta, cur.data.min, cur.data.max)
+                if cur.data.cb then cur.data.cb(cur.data.val) end
+            end
+        elseif k == "[RETURN]" then
+            if cur then
+                if cur.type == "page" then
+                    self.open[cur.idx] = not self.open[cur.idx]
+                elseif cur.type == "item" then
+                    local it = cur.data
+                    if it.typ == "toggle" then
+                        it.val = not it.val
+                        if it.cb then it.cb(it.val) end
+                    elseif it.typ == "button" then
+                        if it.cb then it.cb() end
+                    end
+                end
             end
         end
     end
-    return items
-end
-
-local Window = {}
-Window.__index = Window
-
-function Window:new(d)
-    local self = setmetatable({}, Window)
-    self.name = d.Name or "rcm"
-    self.pos = d.Position or vec(50, 80)
-    self.toggleKey = d.ToggleKey or "F1"
-    self.pages = {}
-    self.vis = true
-    self.w = 300
-    self.curPage = nil
-    self.selIdx = 1
-    table.insert(wins, self)
-    if not active then active = self end
-    return self
-end
-
-function Window:page(d)
-    local p = Page:new(d)
-    table.insert(self.pages, p)
-    if not self.curPage then self.curPage = p end
-    return p
-end
-
-function Window:updateSel()
-    if not self.curPage then return end
-    local all = self.curPage:getAll()
-    if self.selIdx < 1 then self.selIdx = 1 end
-    if self.selIdx > #all then self.selIdx = #all end
-    for _, s in ipairs(self.curPage.sections) do
-        s.sel = false
-        for _, i in ipairs(s.items) do i.sel = false end
-    end
-    if #all > 0 and self.selIdx > 0 then
-        sel = all[self.selIdx]
-        if sel then sel.sel = true end
-    end
-end
-
-function Window:navigate(dir)
-    if not self.curPage then return end
-    local all = self.curPage:getAll()
-    if #all == 0 then return end
-    self.selIdx = dir == "up" and self.selIdx - 1 or self.selIdx + 1
-    if self.selIdx < 1 then self.selIdx = #all
-    elseif self.selIdx > #all then self.selIdx = 1 end
-    self:updateSel()
-end
-
-function Window:activate()
-    if sel and sel.typ == "section" then
-        sel:toggleOpen()
-        self:updateSel()
-    elseif sel then
-        sel:activate()
-    end
-end
-
-function Window:draw()
-    if not self.vis then return end
-    local x, y = self.pos.x, self.pos.y
-    local s = dx9.size()
-    local h = math.min(400, s.height - y - 10)
-    dx9.DrawFilledBox({x, y}, {x + self.w, y + h}, rgb(rcm.theme.bg))
-    dx9.DrawBox({x, y}, {x + self.w, y + h}, rgb(rcm.theme.border))
-    local titleX = x + (self.w / 2) - (wdt(self.name) / 2)
-    txt(titleX, y + 2, self.name, rcm.theme.pink)
-    line(y + LH, rcm.theme.pink)
-    local curY = y + LH + 8
-    if self.curPage then self.curPage:draw(x + 10, curY) end
-    local tabY = y + h - LH - 5
-    local tabX = x + 10
-    for i, p in ipairs(self.pages) do
-        local col = (p == self.curPage) and rcm.theme.pink or rcm.theme.gray
-        txt(tabX, tabY, "[" .. i .. "] " .. p.name, col)
-        tabX = tabX + wdt("[" .. i .. "] " .. p.name) + 10
-    end
-end
-
-function Window:handle()
-    local k = dx9.GetKey()
-    if k == "" then return end
-    if k == "[" .. self.toggleKey .. "]" then
-        self.vis = not self.vis
-        return
-    end
-    if not self.vis then return end
-    if k == "[UP]" then
-        self:navigate("up")
-    elseif k == "[DOWN]" then
-        self:navigate("down")
-    elseif k == "[LEFT]" or k == "[RIGHT]" then
-        if sel and sel.typ == "slider" then
-            if k == "[LEFT]" then
-                sel.cur = sel.cur - sel.inc
-                if sel.cur < sel.min then sel.cur = sel.min end
-            else
-                sel.cur = sel.cur + sel.inc
-                if sel.cur > sel.max then sel.cur = sel.max end
+    
+    function w:Page(p)
+        local pg = {name = p.Name or "Page", secs = {}}
+        function pg:Section(s)
+            local sec = {name = s.Name or "Section", items = {}}
+            function sec:Toggle(t)
+                local it = {typ="toggle", name=t.Name or "Toggle", val=t.Default or false, cb=t.Callback}
+                table.insert(sec.items, it)
+                return it
             end
-            if sel.cb then sel.cb(sel.cur) end
-        end
-    elseif k == "[RETURN]" then
-        self:activate()
-    elseif k == "[TAB]" then
-        for i, p in ipairs(self.pages) do
-            if p == self.curPage then
-                local nxt = (i % #self.pages) + 1
-                self.curPage = self.pages[nxt]
-                self.selIdx = 1
-                self:updateSel()
-                break
+            function sec:Slider(sl)
+                local it = {typ="slider", name=sl.Name or "Slider", val=sl.Default or 0, min=sl.Min or 0, max=sl.Max or 100, cb=sl.Callback}
+                table.insert(sec.items, it)
+                return it
             end
+            function sec:Button(b)
+                local it = {typ="button", name=b.Name or "Button", com=b.Comment or "", cb=b.Callback}
+                table.insert(sec.items, it)
+                return it
+            end
+            table.insert(pg.secs, sec)
+            return sec
         end
+        table.insert(self.pages, pg)
+        return pg
     end
+    
+    d.ShowConsole(true)
+    return w
 end
-
-local lib = {}
-
-function lib:window(d)
-    return Window:new(d)
-end
-
-local function render()
-    for _, w in ipairs(wins) do
-        w:handle()
-        w:draw()
-    end
-end
-
 
 return lib
