@@ -45,11 +45,11 @@ local G   = _G.rcm
 local col = G.col
  
 
-local KEY = dx9.GetKey() or ""
-local LMB = dx9.isLeftClick()
-local RMB = dx9.isRightClick()
-local LMB_HELD = dx9.isLeftClickHeld()
- 
+KEY      = dx9.GetKey() or ""
+LMB      = dx9.isLeftClick()
+RMB      = dx9.isRightClick()
+LMB_HELD = dx9.isLeftClickHeld()
+
 local now = os.clock()
 local dt  = math.min(now - G.t_prev, 0.1)
 G.t_prev  = now
