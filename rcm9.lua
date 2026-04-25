@@ -75,7 +75,7 @@ end
  
 -- lib
  
-local library = {}
+library = {}
  
 function library:Window(cfg)
     local w = {
