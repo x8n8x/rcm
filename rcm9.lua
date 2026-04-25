@@ -57,7 +57,7 @@ G.t_prev  = now
 local function fill(x1,y1,x2,y2,c) dx9.DrawFilledBox({x1,y1},{x2,y2},c) end
 local function str(x,y,c,t)        dx9.DrawString({x,y},c,t)            end
  
-local function send_notif(txt)
+function send_notif(txt)
     local nh = 2 + G.lh + 4
     for _,n in ipairs(G.notifs) do n.ty = n.ty - (nh+4) end
     G.notifs[#G.notifs+1] = {
