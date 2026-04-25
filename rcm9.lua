@@ -1,3 +1,32 @@
+-- cache
+if _G.rcm_cache == nil then
+    _G.rcm_cache = {}
+end
+
+local _oldGet = _G.rcm_cache.oldGet or dx9.Get
+local _oldLoadstring = _G.rcm_cache.oldLoadstring or loadstring
+
+if not _G.rcm_cache.hooked then
+    _G.rcm_cache.hooked = true
+    _G.rcm_cache.oldGet = dx9.Get
+    _G.rcm_cache.oldLoadstring = loadstring
+
+    dx9.Get = function(url)
+        if _G.rcm_cache[url] == nil then
+            _G.rcm_cache[url] = _oldGet(url)
+        end
+        return _G.rcm_cache[url]
+    end
+
+    loadstring = function(src)
+        if _G.rcm_cache["ls_"..src] == nil then
+            _G.rcm_cache["ls_"..src] = _oldLoadstring(src)
+        end
+        return _G.rcm_cache["ls_"..src]
+    end
+end
+
+
 if _G.rcm == nil then
     _G.rcm = {
         col = {
